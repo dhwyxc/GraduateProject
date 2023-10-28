@@ -25,5 +25,6 @@ urlpatterns = [
     path('auth/me/', UserDetailsView.as_view(), name='rest_user_details'),
     path('upload/', views.UploadView.as_view(), name = 'upload'),
     path('summary/', views.SummaryText.as_view(), name = 'summary'),
+    path('tts/', views.TextToSpeech.as_view(), name = 'text_to_speech'),
     path('', include(router.urls)),
 ]

@@ -1,8 +1,9 @@
 import os
-from google.cloud import vision
+from google.cloud import vision, texttospeech
 from dj_rest_auth.views import LoginView
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework import viewsets
 from .models import PostCheck
@@ -22,7 +23,6 @@ from django.views.generic import ListView
 from django.shortcuts import redirect
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
-# Create your views here.
 class PostCheckViews(viewsets.ModelViewSet):
     queryset = PostCheck.objects.order_by('created_at')
     serializer_class = PostCheckSerializer
@@ -40,7 +40,11 @@ class PostCheckViews(viewsets.ModelViewSet):
         else:
             raise PermissionDenied(detail='Not have permission')
         
-        
+class NewsListView(ListView):
+    queryset = PostCheck.objects.order_by('-created_at')
+    paginate_by = 20
+    template_name = 'demo.html'
+    
 class CustomLoginView(LoginView):
         
     def post(self, request, *args, **kwargs):
@@ -140,9 +144,48 @@ class SummaryText(APIView):
 
         summary = nlargest(select_len, senc_scores, key = senc_scores.get)
         return Response({"text": " ".join(summary)})
+    
+class TextToSpeech(APIView):
+    
+    @swagger_auto_schema(request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'text': openapi.Schema(type=openapi.TYPE_STRING)
+        }
+    ))
+    def post(self, request):
+        # Get the text from the request data
+        text = request.data.get('text')
+        output_filename = 'tts.mp3'
+        responsehttp = HttpResponse()
+        
+        if text:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(current_directory, 'certificate.json')    
+            client = texttospeech.TextToSpeechClient()
 
+            input_text = texttospeech.SynthesisInput(text=text)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="vi-VN",
+                ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
+            # Perform the text-to-speech request
+            response = client.synthesize_speech(
+                input=input_text, voice=voice, audio_config=audio_config
+            )
+            # Save the audio to a file
+            with open(output_filename, "wb") as out:
+                out.write(response.audio_content)
 
-class NewsListView(ListView):
-    queryset = PostCheck.objects.order_by('-created_at')
-    paginate_by = 20
-    template_name = 'demo.html'
+            # Read the audio content from the saved file
+            with open(output_filename, "rb") as audio_file:
+                audio_content = audio_file.read()
+
+            responsehttp.write(audio_content)
+            responsehttp['Content-Type'] ='audio/mp3'
+            responsehttp['Content-Length'] = os.path.getsize(output_filename)
+            
+            os.remove(output_filename)
+        return responsehttp
