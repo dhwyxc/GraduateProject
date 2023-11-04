@@ -3,10 +3,25 @@
 {% block content %}
 
 <div class="p-5">
-    <h1>News Serializer Table</h1>
-    <div class="table-responsive">
-        <table class="table table-striped">
-            <thead>
+    <div class="d-flex justify-content-between">
+      <h1>News Community</h1>
+      <div>
+          {% if user.is_authenticated %}
+              <h4>Welcome, {{ user.username }}!</h4>
+          {% else %}
+              <h4>You are not logged in.</h4>
+          {% endif %}
+      </div>
+    </div>
+    <div class="table">
+        <table class="table table-striped table-bordered">
+          <colgroup>
+            <col class="col-2">
+            <col class="col-2">
+            <col class="col-5">
+            <col class="col-1">
+        </colgroup>
+            <thead class="thead-dark">
               <tr>
                 <th>Title</th>
                 <th>Link</th>
@@ -17,9 +32,9 @@
             <tbody>
               {% for news in object_list %}
                 <tr>
-                  <td>{{ news.title }}</td>
-                  <td>{{ news.link }}</td>
-                  <td >{{ news.content }}</td>
+                  <td><h6>{{ news.title }}</h6></td>
+                  <td class="text-break"><a href="{{ news.link }}" target="_blank">{{ news.link }}</a></td>
+                  <td><textarea class="form-control" disabled>{{ news.content }}</textarea></td>
                   <td>
                     <form method="POST" action="{% url 'gp:post-update-status' news.pk %}">
                       {% csrf_token %}
