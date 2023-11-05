@@ -1,3 +1,4 @@
+import pickle
 from rest_framework.decorators import action
 from drf_yasg.utils import swagger_auto_schema
 from underthesea import word_tokenize, sent_tokenize
@@ -12,17 +13,22 @@ from rest_framework.response import Response
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework import viewsets, mixins
+import tensorflow as tf
+from keras.models import load_model
+import dill
+from users.preprocess import vietnamese_text_preprocessing
 from .models import PostCheck
 from .serializers import PostCheckSerializer
 from .constants import ALLOWED_EXTENSIONS
 from string import punctuation
 from drf_yasg import openapi
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.renderers import JSONRenderer
 from collections import defaultdict
 from django.views.generic import ListView
 from rest_framework.permissions import IsAdminUser, AllowAny
 from sklearn.feature_extraction.text import TfidfVectorizer
+from underthesea import classify
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -76,7 +82,7 @@ class RecommendView(APIView):
         ]
     )
     def post(self, request):
-        new_content = request.data.get("content")
+        new_content = request.data.get("text")
         existing_posts = PostCheck.objects.filter(status=True)
 
         # Compare new content with existing content and find similar records
@@ -185,10 +191,10 @@ class SummaryText(APIView):
         ],
     )
     def post(self, request):
-        text = request.POST.get("text")
+        text = request.data.get("text")
         text = text.replace("\n", " ")
         text = text.strip()
-        file_path = os.path.join(current_directory, "vn-stopword.txt")
+        file_path = os.path.join(current_directory, "model/vn-stopword.txt")
         with open(file_path, encoding="utf-8") as file:
             stopwords = [word.rstrip() for word in file.readlines()]
 
@@ -210,6 +216,63 @@ class SummaryText(APIView):
 
         summary = nlargest(select_len, senc_scores, key=senc_scores.get)
         return Response({"text": " ".join(summary)})
+
+
+class PredictView(APIView):
+    parser_classes = [MultiPartParser]
+    renderer_classes = [JSONRenderer]
+
+    def post(self, request):
+        record = request.data
+        # print(record)
+        if record["text"] == "":
+            return Response("2")
+        else:
+            pred_rs = self.model_predict(record["model"], record["text"])
+            rs = str(pred_rs) + ";" + "".join(classify(record["text"]))
+            return Response(rs)
+
+    def model_predict(self, model, text):
+        with open(current_directory + "/model/tokenizer.pkl", "rb") as handle:
+            tokenizer_saved = pickle.load(handle)
+        with open(current_directory + "/model/tfidf_vector.pkl", "rb") as in_strm:
+            saved_tfidf = dill.load(in_strm)
+        with open(current_directory + "/model/nb-model.pkl", "rb") as in_strm:
+            saved_nb = dill.load(in_strm)
+        with open(current_directory + "/model/tree-model.pkl", "rb") as in_strm:
+            saved_tree = dill.load(in_strm)
+        with open(current_directory + "/model/svc-model.pkl", "rb") as in_strm:
+            saved_svc = dill.load(in_strm)
+        model_rnn = load_model(current_directory + "/model/rnn-model_final.h5")
+        model_rnn.compile()
+
+        preprocessed_text = " ".join(vietnamese_text_preprocessing(text))
+
+        match model.lower():
+            case "rnn":
+                print("RNN")
+                text_sequence = tokenizer_saved.texts_to_sequences([preprocessed_text])
+                padded_text = tf.keras.preprocessing.sequence.pad_sequences(
+                    text_sequence, padding="post", maxlen=256
+                )
+                pred_text = model_rnn.predict(padded_text)[0][0]
+                print(pred_text)
+                return 0 if pred_text < 0.5 else 1
+
+            case "svm":
+                print("SVC")
+                tfidf_text = saved_tfidf.transform([preprocessed_text])
+                return saved_svc.predict(tfidf_text)[0]
+
+            case "nb":
+                print("NB")
+                tfidf_text = saved_tfidf.transform([preprocessed_text])
+                return saved_nb.predict(tfidf_text)[0]
+
+            case "dt":
+                print("DT")
+                tfidf_text = saved_tfidf.transform([preprocessed_text])
+                return saved_tree.predict(tfidf_text)[0]
 
 
 class TextToSpeech(APIView):

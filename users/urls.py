@@ -31,6 +31,7 @@ urlpatterns = [
     path("image-to-text/", views.DetectTextView.as_view(), name="image_to_text"),
     path("summary/", views.SummaryText.as_view(), name="summary"),
     path("recommend/", views.RecommendView.as_view(), name="recommend"),
+    path("predict/", views.PredictView.as_view(), name="predict"),
     path("text-to-speech/", views.TextToSpeech.as_view(), name="text_to_speech"),
     path("", include(router.urls)),
 ]
