@@ -66,28 +66,15 @@ class RecommendView(APIView):
     APIView for recommend news for client
     """
 
-    parser_classes = [MultiPartParser]
+    parser_classes = [JSONParser]
     renderer_classes = [JSONRenderer]
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        manual_parameters=[
-            openapi.Parameter(
-                name="content",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_STRING,
-                required=True,
-                description="News content",
-            )
-        ]
-    )
     def post(self, request):
         new_content = request.data.get("text")
         existing_posts = PostCheck.objects.filter(status=True)
-
         # Compare new content with existing content and find similar records
         similar_posts = []
-
         for post in existing_posts:
             similarity = self.similar_percentage(new_content, post.content)
             if similarity >= 70:
@@ -97,8 +84,8 @@ class RecommendView(APIView):
                         "similarity_percentage": similarity,
                     }
                 )
-
-        return Response({"similar_posts": similar_posts}, status=status.HTTP_200_OK)
+        print(similar_posts)
+        return Response(similar_posts, status=status.HTTP_200_OK)
 
     def similar_percentage(self, text1, text2):
         # Create a TF-IDF vectorizer
@@ -160,7 +147,7 @@ class DetectTextView(APIView):
             result = my_list.pop(0)
             result = result.replace("\n", " ")
             result = result.strip()
-            return Response(result)
+            return Response({"text": result})
 
         else:
             return Response(
@@ -178,18 +165,6 @@ class SummaryText(APIView):
     parser_classes = [MultiPartParser]
     renderer_classes = [JSONRenderer]
 
-    @swagger_auto_schema(
-        operation_description="Summary Text",
-        manual_parameters=[
-            openapi.Parameter(
-                name="text",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_STRING,
-                required=True,
-                description="Text for Summary",
-            )
-        ],
-    )
     def post(self, request):
         text = request.data.get("text")
         text = text.replace("\n", " ")
@@ -219,18 +194,27 @@ class SummaryText(APIView):
 
 
 class PredictView(APIView):
-    parser_classes = [MultiPartParser]
+    parser_classes = [JSONParser]
     renderer_classes = [JSONRenderer]
 
     def post(self, request):
         record = request.data
-        # print(record)
         if record["text"] == "":
-            return Response("2")
+            return Response({"predict": 2})
         else:
             pred_rs = self.model_predict(record["model"], record["text"])
-            rs = str(pred_rs) + ";" + "".join(classify(record["text"]))
-            return Response(rs)
+            print(
+                {
+                    "predict": pred_rs,
+                    "topic": classify(record["text"])[0].replace("_", " "),
+                }
+            )
+            return Response(
+                {
+                    "predict": pred_rs,
+                    "topic": classify(record["text"])[0].replace("_", " "),
+                }
+            )
 
     def model_predict(self, model, text):
         with open(current_directory + "/model/tokenizer.pkl", "rb") as handle:
@@ -278,18 +262,6 @@ class PredictView(APIView):
 class TextToSpeech(APIView):
     parser_classes = [MultiPartParser]
 
-    @swagger_auto_schema(
-        operation_description="Text to Speech",
-        manual_parameters=[
-            openapi.Parameter(
-                name="text",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_STRING,
-                required=True,
-                description="Text to Speech",
-            )
-        ],
-    )
     def post(self, request):
         # Get the text from the request data
         text = request.data.get("text")
