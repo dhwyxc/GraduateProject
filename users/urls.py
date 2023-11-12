@@ -17,7 +17,7 @@ router.register(r"post", views.PostCheckViews, basename="post")
 router.register(r"post-community", views.PostCommunityViews, basename="post_community")
 
 urlpatterns = [
-    path("auth/register/", RegisterView.as_view(), name="register"),
+    path("auth/register/", views.CustomRegister.as_view(), name="register"),
     path("auth/login/", views.CustomLoginView.as_view(), name="login"),
     path("auth/logout/", LogoutView.as_view(), name="rest_logout"),
     path("auth/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
