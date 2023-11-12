@@ -8,6 +8,7 @@ from heapq import nlargest
 import os
 from google.cloud import vision, texttospeech
 from dj_rest_auth.views import LoginView
+from dj_rest_auth.registration.views import RegisterView
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import HttpResponse
@@ -308,9 +309,31 @@ class CustomLoginView(LoginView):
                 {"message": "User is already logged in."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        print("Sign In: ", self.request.data["data"])
         self.request = request
-        self.serializer = self.get_serializer(data=self.request.data)
+        self.serializer = self.get_serializer(data=self.request.data["data"])
         self.serializer.is_valid(raise_exception=True)
 
         self.login()
         return self.get_response()
+
+
+class CustomRegister(RegisterView):
+    def create(self, request, *args, **kwargs):
+        print("SignUp: ", request.data["data"])
+        serializer = self.get_serializer(data=request.data["data"])
+        serializer.is_valid(raise_exception=True)
+        user = self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        data = self.get_response_data(user)
+
+        if data:
+            response = Response(
+                data,
+                status=status.HTTP_201_CREATED,
+                headers=headers,
+            )
+        else:
+            response = Response(status=status.HTTP_204_NO_CONTENT, headers=headers)
+
+        return response
