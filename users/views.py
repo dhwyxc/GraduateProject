@@ -163,7 +163,7 @@ class DetectTextView(APIView):
 
 
 class SummaryText(APIView):
-    parser_classes = [MultiPartParser]
+    parser_classes = [JSONParser]
     renderer_classes = [JSONRenderer]
 
     def post(self, request):
@@ -191,7 +191,7 @@ class SummaryText(APIView):
         select_len = int(len(sent_tokenize(text)) * 0.25)
 
         summary = nlargest(select_len, senc_scores, key=senc_scores.get)
-        return Response({"text": " ".join(summary)})
+        return Response({"text": summary})
 
 
 class PredictView(APIView):
@@ -261,7 +261,7 @@ class PredictView(APIView):
 
 
 class TextToSpeech(APIView):
-    parser_classes = [MultiPartParser]
+    parser_classes = [JSONParser]
 
     def post(self, request):
         # Get the text from the request data
