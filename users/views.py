@@ -18,7 +18,7 @@ import tensorflow as tf
 from keras.models import load_model
 import dill
 from users.preprocess import vietnamese_text_preprocessing
-from .models import PostCheck
+from .models import PostCheck, PostAudio
 from .serializers import PostCheckSerializer
 from .constants import ALLOWED_EXTENSIONS
 from string import punctuation
@@ -30,6 +30,8 @@ from django.views.generic import ListView
 from rest_framework.permissions import IsAdminUser, AllowAny
 from sklearn.feature_extraction.text import TfidfVectorizer
 from underthesea import classify
+from google.cloud import storage
+from slugify import slugify
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -266,40 +268,68 @@ class TextToSpeech(APIView):
     def post(self, request):
         # Get the text from the request data
         text = request.data.get("text")
-        output_filename = "tts.mp3"
-        responsehttp = HttpResponse()
+        title = request.data.get("title")
+        slug = slugify(title)
+        output_filename = f"{slug}.mp3"
 
         if text:
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-                current_directory, "certificate.json"
-            )
-            client = texttospeech.TextToSpeechClient()
+            try:
+                post_audio = PostAudio.objects.get(slug=slug)
+                uploaded_link = post_audio.link
+                print("Uploaded")
+            except PostAudio.DoesNotExist:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
+                    current_directory, "certificate.json"
+                )
+                client = texttospeech.TextToSpeechClient()
 
-            input_text = texttospeech.SynthesisInput(text=text)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="vi-VN", ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3
-            )
-            # Perform the text-to-speech request
-            response = client.synthesize_speech(
-                input=input_text, voice=voice, audio_config=audio_config
-            )
-            # Save the audio to a file
-            with open(output_filename, "wb") as out:
-                out.write(response.audio_content)
+                input_text = texttospeech.SynthesisInput(text=text)
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="vi-VN",
+                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE,
+                )
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.MP3
+                )
+                # Perform the text-to-speech request
+                response = client.synthesize_speech(
+                    input=input_text, voice=voice, audio_config=audio_config
+                )
+                # Save the audio to a file
+                with open(output_filename, "wb") as out:
+                    out.write(response.audio_content)
 
-            # Read the audio content from the saved file
-            with open(output_filename, "rb") as audio_file:
-                audio_content = audio_file.read()
+                uploaded_link = self.upload_file_to_gcs(
+                    "datn_2023", output_filename, output_filename
+                )
+                # Create a new PostAudio object if it doesn't exist
+                post_audio = PostAudio.objects.create(slug=slug, link=uploaded_link)
+                print("Created")
+                os.remove(output_filename)
 
-            responsehttp.write(audio_content)
-            responsehttp["Content-Type"] = "audio/mp3"
-            responsehttp["Content-Length"] = os.path.getsize(output_filename)
+        return Response({"link": uploaded_link})
 
-            os.remove(output_filename)
-        return responsehttp
+    def upload_file_to_gcs(self, bucket_name, local_file_path, destination_blob_name):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
+            current_directory, "certificate.json"
+        )
+
+        # Create a storage client
+        client = storage.Client()
+
+        # Get the bucket
+        bucket = client.get_bucket(bucket_name)
+
+        # Create a blob (file) object
+        blob = bucket.blob(destination_blob_name)
+
+        # Upload the file to Cloud Storage
+        blob.upload_from_filename(local_file_path)
+
+        # Generate a public link to the uploaded file
+        link = blob.public_url
+
+        return link
 
 
 class CustomLoginView(LoginView):
