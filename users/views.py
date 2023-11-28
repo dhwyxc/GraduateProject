@@ -231,7 +231,6 @@ class PredictView(APIView):
         with open(current_directory + "/model/svc-model.pkl", "rb") as in_strm:
             saved_svc = dill.load(in_strm)
         model_rnn = load_model(current_directory + "/model/rnn-model_final.h5")
-        model_rnn.compile()
 
         preprocessed_text = " ".join(vietnamese_text_preprocessing(text))
 
@@ -270,66 +269,60 @@ class TextToSpeech(APIView):
         text = request.data.get("text")
         title = request.data.get("title")
         slug = slugify(title)
-        output_filename = f"{slug}.mp3"
-
+        output_filename = f"{slug}.wav"
+        uploaded_link = ""
         if text:
             try:
                 post_audio = PostAudio.objects.get(slug=slug)
                 uploaded_link = post_audio.link
                 print("Uploaded")
             except PostAudio.DoesNotExist:
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-                    current_directory, "certificate.json"
-                )
-                client = texttospeech.TextToSpeechClient()
-
-                input_text = texttospeech.SynthesisInput(text=text)
-                voice = texttospeech.VoiceSelectionParams(
-                    language_code="vi-VN",
-                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE,
-                )
-                audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3
-                )
-                # Perform the text-to-speech request
-                response = client.synthesize_speech(
-                    input=input_text, voice=voice, audio_config=audio_config
-                )
-                # Save the audio to a file
-                with open(output_filename, "wb") as out:
-                    out.write(response.audio_content)
-
-                uploaded_link = self.upload_file_to_gcs(
-                    "datn_2023", output_filename, output_filename
-                )
-                # Create a new PostAudio object if it doesn't exist
-                post_audio = PostAudio.objects.create(slug=slug, link=uploaded_link)
-                print("Created")
-                os.remove(output_filename)
-
+                try:
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
+                        current_directory, "certificate.json"
+                    )
+                    uri = f"gs://datn_2023/{output_filename}"
+                    self.synthesize_long_audio(
+                        text, "datn2023-18102001", "asia-southeast1", uri
+                    )
+                    uploaded_link = (
+                        f"https://storage.googleapis.com/datn_2023/{output_filename}"
+                    )
+                    # Create a new PostAudio object if it doesn't exist
+                    post_audio = PostAudio.objects.create(slug=slug, link=uploaded_link)
+                    print("Created")
+                except Exception as e:
+                    print(e)
+                    
         return Response({"link": uploaded_link})
 
-    def upload_file_to_gcs(self, bucket_name, local_file_path, destination_blob_name):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-            current_directory, "certificate.json"
+    def synthesize_long_audio(self, text, project_id, location, output_gcs_uri):
+        client = texttospeech.TextToSpeechLongAudioSynthesizeClient()
+
+        input = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="vi-VN", name="vi-VN-Standard-A"
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16
         )
 
-        # Create a storage client
-        client = storage.Client()
+        parent = f"projects/{project_id}/locations/{location}"
 
-        # Get the bucket
-        bucket = client.get_bucket(bucket_name)
+        request = texttospeech.SynthesizeLongAudioRequest(
+            parent=parent,
+            input=input,
+            audio_config=audio_config,
+            voice=voice,
+            output_gcs_uri=output_gcs_uri,
+        )
 
-        # Create a blob (file) object
-        blob = bucket.blob(destination_blob_name)
+        operation = client.synthesize_long_audio(request=request)
+        # Set a deadline for your LRO to finish. 300 seconds is reasonable, but can be adjusted depending on the length of the input.
+        # If the operation times out, that likely means there was an error. In that case, inspect the error, and try again.
 
-        # Upload the file to Cloud Storage
-        blob.upload_from_filename(local_file_path)
-
-        # Generate a public link to the uploaded file
-        link = blob.public_url
-
-        return link
+        response = operation.result(timeout=300)
+        print("Finished processing",response)
 
 
 class CustomLoginView(LoginView):
