@@ -2,7 +2,6 @@ NEWS_CATEGORY = [
     "World",
     "News",
     "Business",
-    "Startups",
     "Entertainment",
     "Sport",
     "Law",

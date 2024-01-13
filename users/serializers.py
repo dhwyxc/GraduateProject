@@ -13,7 +13,7 @@ from .constants import NEWS_CATEGORY_CHOICES
 class PostCheckSerializer(serializers.ModelSerializer):
     class Meta:
         model = PostCheck
-        exclude = ["is_deleted", "deleted_at"]
+        fields = "__all__"
         read_only_fields = ["status"]
 
 

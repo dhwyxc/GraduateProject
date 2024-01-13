@@ -11,7 +11,6 @@ from dj_rest_auth.views import LoginView
 from dj_rest_auth.registration.views import RegisterView
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import HttpResponse
 from rest_framework import status
 from rest_framework import viewsets, mixins
 import tensorflow as tf
@@ -36,7 +35,7 @@ from slugify import slugify
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
 
-class PostCheckViews(viewsets.ModelViewSet):
+class PostCheckViews(viewsets.GenericViewSet):
     queryset = PostCheck.objects.order_by("created_at")
     serializer_class = PostCheckSerializer
     permission_classes = [IsAdminUser]
@@ -68,10 +67,8 @@ class RecommendView(APIView):
     """
     APIView for recommend news for client
     """
-
     parser_classes = [JSONParser]
     renderer_classes = [JSONRenderer]
-    permission_classes = [AllowAny]
 
     def post(self, request):
         new_content = request.data.get("text")
@@ -110,18 +107,7 @@ class DetectTextView(APIView):
     parser_classes = [MultiPartParser]
     renderer_classes = [JSONRenderer]
 
-    @swagger_auto_schema(
-        operation_description="Upload file to detect text",
-        manual_parameters=[
-            openapi.Parameter(
-                name="file",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_FILE,
-                required=True,
-                description="Upload file",
-            )
-        ],
-    )
+
     def post(self, request):
         file = request.FILES.get("file")
 
@@ -184,34 +170,29 @@ class SummaryText(APIView):
         max_freq = max(word_freq.values())
         word_freq = {word: freq / max_freq for word, freq in word_freq.items()}
 
-        senc_scores = defaultdict(int)
+        sent_scores = defaultdict(int)
         for sent in sent_tokenize(text):
-            senc_scores[sent] = sum(
+            sent_scores[sent] = sum(
                 word_freq.get(word, 0) for word in word_tokenize(sent)
             )
 
         select_len = int(len(sent_tokenize(text)) * 0.25)
 
-        summary = nlargest(select_len, senc_scores, key=senc_scores.get)
+        summary = nlargest(select_len, sent_scores, key=sent_scores.get)
         return Response({"text": summary})
 
 
 class PredictView(APIView):
     parser_classes = [JSONParser]
     renderer_classes = [JSONRenderer]
-
+    
     def post(self, request):
         record = request.data
         if record["text"] == "":
             return Response({"predict": 2})
         else:
-            pred_rs = self.model_predict(record["model"], record["text"])
-            print(
-                {
-                    "predict": pred_rs,
-                    "topic": classify(record["text"])[0].replace("_", " "),
-                }
-            )
+            pred_rs = self.model_predict(record["text"])
+
             return Response(
                 {
                     "predict": pred_rs,
@@ -219,46 +200,22 @@ class PredictView(APIView):
                 }
             )
 
-    def model_predict(self, model, text):
+    def model_predict(self, text):
+        print("RNN")
+
         with open(current_directory + "/model/tokenizer.pkl", "rb") as handle:
             tokenizer_saved = pickle.load(handle)
-        with open(current_directory + "/model/tfidf_vector.pkl", "rb") as in_strm:
-            saved_tfidf = dill.load(in_strm)
-        with open(current_directory + "/model/nb-model.pkl", "rb") as in_strm:
-            saved_nb = dill.load(in_strm)
-        with open(current_directory + "/model/tree-model.pkl", "rb") as in_strm:
-            saved_tree = dill.load(in_strm)
-        with open(current_directory + "/model/svc-model.pkl", "rb") as in_strm:
-            saved_svc = dill.load(in_strm)
+
         model_rnn = load_model(current_directory + "/model/rnn-model_final.h5")
 
         preprocessed_text = " ".join(vietnamese_text_preprocessing(text))
-
-        match model.lower():
-            case "rnn":
-                print("RNN")
-                text_sequence = tokenizer_saved.texts_to_sequences([preprocessed_text])
-                padded_text = tf.keras.preprocessing.sequence.pad_sequences(
-                    text_sequence, padding="post", maxlen=256
-                )
-                pred_text = model_rnn.predict(padded_text)[0][0]
-                print(pred_text)
-                return 0 if pred_text < 0.5 else 1
-
-            case "svm":
-                print("SVC")
-                tfidf_text = saved_tfidf.transform([preprocessed_text])
-                return saved_svc.predict(tfidf_text)[0]
-
-            case "nb":
-                print("NB")
-                tfidf_text = saved_tfidf.transform([preprocessed_text])
-                return saved_nb.predict(tfidf_text)[0]
-
-            case "dt":
-                print("DT")
-                tfidf_text = saved_tfidf.transform([preprocessed_text])
-                return saved_tree.predict(tfidf_text)[0]
+        text_sequence = tokenizer_saved.texts_to_sequences([preprocessed_text])
+        padded_text = tf.keras.preprocessing.sequence.pad_sequences(
+            text_sequence, padding="post", maxlen=256
+        )
+        pred_text = model_rnn.predict(padded_text)[0][0]
+        print(pred_text)
+        return 0 if pred_text < 0.5 else 1
 
 
 class TextToSpeech(APIView):
@@ -278,6 +235,7 @@ class TextToSpeech(APIView):
                 print("Uploaded")
             except PostAudio.DoesNotExist:
                 try:
+                    print(output_filename)
                     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
                         current_directory, "certificate.json"
                     )
@@ -293,7 +251,7 @@ class TextToSpeech(APIView):
                     print("Created")
                 except Exception as e:
                     print(e)
-                    
+
         return Response({"link": uploaded_link})
 
     def synthesize_long_audio(self, text, project_id, location, output_gcs_uri):
@@ -322,7 +280,7 @@ class TextToSpeech(APIView):
         # If the operation times out, that likely means there was an error. In that case, inspect the error, and try again.
 
         response = operation.result(timeout=300)
-        print("Finished processing",response)
+        print("Finished processing", response)
 
 
 class CustomLoginView(LoginView):
@@ -332,7 +290,7 @@ class CustomLoginView(LoginView):
                 {"message": "User is already logged in."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        print("Sign In: ", self.request.data["data"])
+        # print("Sign In: ", self.request.data["data"])
         self.request = request
         self.serializer = self.get_serializer(data=self.request.data["data"])
         self.serializer.is_valid(raise_exception=True)

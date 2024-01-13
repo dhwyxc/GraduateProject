@@ -1,6 +1,5 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django_softdelete.models import SoftDeleteModel, SoftDeleteManager
 from .constants import NEWS_CATEGORY_CHOICES
 from multiselectfield import MultiSelectField
 
